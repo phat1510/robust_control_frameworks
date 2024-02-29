@@ -49,8 +49,9 @@ wp = wpt(L,vx_track);
 % grid on;
 
 
-%% LTI case
-vx = 20;
+%% LTI case + DLQR
+% Test vx from 10 to 35 m/s (36 to 126 km/h)
+vx = 10; %m/s
 A = [-(Cf+Cr)/(m*vx)    -vx + (-lf*Cf+lr*Cr)/(m*vx) 0;
     (-lf*Cf+lr*Cr)/(Iz*vx) (lf^2*Cf+lr^2*Cr)/(Iz*vx) 0;
     0 1 0];
@@ -59,9 +60,8 @@ C = diag([1 1 1]);
 D = 0;
 
 V_LIN = ss(A,B,C,D);
-Q_gain_lin = diag([1 1 1000]);
+Q_gain_lin = diag([1 10 10]); 
 R_gain_lin = 1;
-% K_lqr = -lqr(V_LIN, Q_gain_lin, R_gain_lin)
 
 V_DIS = c2d(V_LIN, Ts);
 A_dis = V_DIS.A;
@@ -73,8 +73,14 @@ K_dlqr = dlqr(A_dis, B_dis, Q_gain_lin, R_gain_lin)
 %% LPV case
 vx_min = 5;
 vx_max = 20;
-vxin_max = 0.2;
-vxin_min = 0.05;
+vxin_max = 1/vx_min;
+vxin_min = 1/vx_max;
+
+range = [vx_min vx_max;
+        1/vx_max 1/vx_min];
+p = [vx 1/vx]';
+
+[alpha, vertx] = my_polydec(p,range);
 
 A1 = [-(Cf+Cr)*vxin_max/m    -vx_max + (-lf*Cf+lr*Cr)*vxin_max/m 0;
     (-lf*Cf+lr*Cr)*vxin_max/Iz (lf^2*Cf+lr^2*Cr)*vxin_max/Iz 0;
@@ -125,7 +131,9 @@ F1 = [P>=0];
 F2 = [[-P+Q (A_dis*P-B_dis*Y);(A_dis*P-B_dis*Y)' -P]<=0];
 F3 = [[W (C_*P+D_*Y);(C_*P+D_*Y)' P]>=0];
 F = [F1, F2, F3];
-optimize(F, trace(W));
+ops = sdpsettings;
+ops.verbose =0;
+optimize(F, trace(W),ops);
 
 K_lmi = value(Y)*inv(value(P))
 
@@ -151,26 +159,28 @@ F33 = [[W (C_*P+D_*Y3);(C_*P+D_*Y3)' P]>=0];
 F34 = [[W (C_*P+D_*Y4);(C_*P+D_*Y4)' P]>=0];
 
 F_full = [F1,F21,F22,F23,F24,F31,F32,F33,F34];
-optimize(F_full, trace(W));
+optimize(F_full, trace(W),ops);
 
-K_lmi1 = value(Y1)*inv(value(P))
-K_lmi2 = value(Y2)*inv(value(P))
-K_lmi3 = value(Y3)*inv(value(P))
-K_lmi4 = value(Y4)*inv(value(P))
+K_lmi1 = value(Y1)*inv(value(P));
+K_lmi2 = value(Y2)*inv(value(P));
+K_lmi3 = value(Y3)*inv(value(P));
+K_lmi4 = value(Y4)*inv(value(P));
 
+
+K_lmi_lpv = alpha(1)*K_lmi2 + alpha(2)*K_lmi3 + alpha(3)*K_lmi4 + alpha(4)*K_lmi1
 %% Visualization
-sim("vehicle_dynamic_dis_3states.slx");
-
-simtime = tout;
-x_ref   = monitor.Data(:,1);
-x_real  = monitor.Data(:,2);
-y_ref   = monitor.Data(:,3);
-y_real  = monitor.Data(:,4);
-
-figure(1)
-plot(x_ref, y_ref, x_real, y_real);
-legend("ref", "real");
-grid on
+% sim("vehicle_dynamic_dis_3states.slx");
+% 
+% simtime = tout;
+% x_ref   = monitor.Data(:,1);
+% x_real  = monitor.Data(:,2);
+% y_ref   = monitor.Data(:,3);
+% y_real  = monitor.Data(:,4);
+% 
+% figure(1)
+% plot(x_ref, y_ref, x_real, y_real);
+% legend("ref", "real");
+% grid on
 
 function wp_time = wpt(segment_length, vx)
 time = 0;
